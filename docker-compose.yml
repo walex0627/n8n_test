@@ -1,0 +1,24 @@
+version: "3.8"
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    restart: unless-stopped
+    environment:
+      N8N_HOST: localhost
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://localhost:5678/
+      GENERIC_TIMEZONE: America/Bogota
+      TZ: America/Bogota
+      N8N_SECURE_COOKIE: false
+      N8N_LICENSE_KEY: 4602ce52-1d2b-4650-a16d-8619b3576bc2
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+
+
+volumes:
+  n8n_data:
