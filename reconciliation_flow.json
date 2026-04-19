@@ -1,0 +1,1084 @@
+{
+  "name": "n8n_test",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1888,
+        32
+      ],
+      "id": "3011f96a-436b-46d2-b709-e8e3600c2478",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "transaction",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "ec1cc3bc-cf75-49f6-97d0-f614ac1af487"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Gastos"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "49b94a07-8ebc-441f-8b4d-7313306b69d4",
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "notification",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Informativo"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -1216,
+        176
+      ],
+      "id": "5676a9d6-7b0c-4f10-8af4-6dd6d916055f",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": true,
+        "filters": {
+          "q": "(bancolombia OR nequi OR nubank OR uala OR davivienda OR daviplata OR pse OR breebe OR transfiya) after:2026/01/01"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -1744,
+        208
+      ],
+      "id": "187dd956-8ec6-4491-9e49-460477ed9b28",
+      "name": "Get many messages",
+      "webhookId": "40e96e2f-aaad-4fe1-ac15-f6302c7defde",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "MqGi7dzzclXLwVcZ",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -640,
+        0
+      ],
+      "id": "e41ffbc7-c888-4315-9105-7fc08e2a372b",
+      "name": "Loop Over Items",
+      "alwaysOutputData": true,
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -448,
+        384
+      ],
+      "id": "e89fe2fa-330a-48a8-bc62-89afb2fec4c8",
+      "name": "Wait",
+      "webhookId": "9d86c02d-1a48-4bae-b1ed-82273cdc9d46"
+    },
+    {
+      "parameters": {
+        "jsCode": "const bankRegex = /\\b(Bancolombia|Nequi|Nu|Nubank|Uala|Davivienda|Daviplata|PSE|Breebe|Transfiya)\\b/i;\n\nconst bankItems = items.filter(item => {\n  const snippet = item.json.snippet || \"\";\n  const subject = item.json.Subject || \"\";\n  return bankRegex.test(snippet) || bankRegex.test(subject);\n});\n\nreturn bankItems.map(item => {\n  const raw = item.json;\n  const snippet = raw.snippet || \"\";\n  const subject = raw.Subject || \"\";\n  const fullText = `${subject} ${snippet}`;\n\n  // 1. Extracción de Monto\n  const amountMatch = fullText.match(/(?:COP|\\$|valor|por|de)\\s*([\\d\\.,]{3,})/i);\n  let amount = 0;\n  if (amountMatch) {\n    let rawAmount = amountMatch[1].replace(/\\s/g, \"\");\n    if (rawAmount.includes(\",\") && rawAmount.includes(\".\")) {\n       rawAmount = rawAmount.replace(/\\./g, \"\").replace(\",\", \".\");\n    } else if (rawAmount.includes(\".\") && rawAmount.indexOf(\".\") !== rawAmount.lastIndexOf(\".\")) {\n       rawAmount = rawAmount.replace(/\\./g, \"\");\n    } else {\n       rawAmount = rawAmount.replace(\",\", \".\");\n    }\n    amount = parseFloat(rawAmount) || 0;\n  }\n\n  // 2. Clasificación de tipo y comercio\n  const transactionKeywords = /\\b(pago|compra|transferencia|recibiste|enviaste|adelanto|retiro|desembolso|PSE|Breebe|llave)\\b/i;\n  const isTransaction = amount > 0 || transactionKeywords.test(fullText);\n  \n  const merchantMatch = fullText.match(/(?:en|desde|a|de)\\s+(.+?)\\s+(?:con tu|el|desde|por|a las|el día|con nro|valor|en)/i);\n  let merchant = merchantMatch ? merchantMatch[1].trim().toUpperCase() : \"BANCO/SISTEMA\";\n\n  // 3. Fechas y Tiempos\n  const dateObj = new Date(parseInt(raw.internalDate));\n  const dateReadable = dateObj.toLocaleString(\"es-CO\", { timeZone: \"America/Bogota\" });\n\n  // 4. Asignación de Banco\n  let bankName = \"Otro\";\n  if (/Bancolombia/i.test(fullText)) bankName = \"Bancolombia\";\n  else if (/Nequi/i.test(fullText)) bankName = \"Nequi\";\n  else if (/Nu|Nubank/i.test(fullText)) bankName = \"Nu\";\n  else if (/Uala/i.test(fullText)) bankName = \"Ualá\";\n  else if (/Davivienda|Daviplata/i.test(fullText)) bankName = \"Davivienda/Daviplata\";\n  else if (/Breebe/i.test(fullText)) bankName = \"Breebe\";\n  else if (/PSE/i.test(fullText)) bankName = \"PSE\";\n\n  return {\n    json: {\n      id: raw.id,\n      threadId: raw.threadId,\n      bank: bankName,\n      subject: subject,\n      from: raw.From,\n      to: raw.To || \"walteralex0627@gmail.com\",\n      snippet: snippet,\n      merchant: merchant,\n      amount_cop: amount,\n      currency: amount > 0 ? \"COP\" : \"\",\n      tx_date: dateObj.toISOString().split('T')[0],\n      tx_time: dateObj.toTimeString().split(' ')[0],\n      internalDate_readable: dateReadable,\n      labels: JSON.stringify(raw.labels || []), // Lo pasamos como texto para el Excel\n      mimeType: raw.payload?.mimeType || \"text/plain\",\n      sizeEstimate: raw.sizeEstimate,\n      historyId: raw.historyId,\n      type: isTransaction ? \"transaction\" : \"notification\",\n      internalDate: raw.internalDate\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1488,
+        64
+      ],
+      "id": "134f1518-8813-46db-a1b8-c83f54ab9ad4",
+      "name": "Data filter",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -464,
+        16
+      ],
+      "id": "04fa2c9f-3a7f-4ab3-a814-e82337ae19a4",
+      "name": "Wait1",
+      "webhookId": "9d86c02d-1a48-4bae-b1ed-82273cdc9d46"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "42e38865-6a16-4e20-a032-b80ba7e5acdb",
+              "name": "id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "abb83285-17af-4096-ab91-f8900542bf80",
+              "name": "threadId",
+              "value": "={{ $json.threadId }}",
+              "type": "string"
+            },
+            {
+              "id": "fbe8ad54-0323-44a3-beca-48ae0d804812",
+              "name": "bank",
+              "value": "={{ $json.bank }}",
+              "type": "string"
+            },
+            {
+              "id": "6c6f88ad-2a46-48d5-accf-21ef197bac62",
+              "name": "subject",
+              "value": "={{ $json.subject }}",
+              "type": "string"
+            },
+            {
+              "id": "be59cef6-c250-44bf-9435-294b143c5dbf",
+              "name": "from",
+              "value": "={{ $json.from }}",
+              "type": "string"
+            },
+            {
+              "id": "472fcf08-38d1-4c3c-a7ae-45fcc5e12507",
+              "name": "to",
+              "value": "={{ $json.to }}",
+              "type": "string"
+            },
+            {
+              "id": "1bfab266-87de-45d2-80c5-b6676c5edcbf",
+              "name": "snippet",
+              "value": "={{ $json.snippet }}",
+              "type": "string"
+            },
+            {
+              "id": "b98b22a4-8137-471c-89e8-a95b269a4735",
+              "name": "merchant",
+              "value": "={{ $json.merchant }}",
+              "type": "string"
+            },
+            {
+              "id": "97a83898-5a9c-4368-ab83-262c9f5ffeb1",
+              "name": "amount_cop",
+              "value": "={{ $json.amount_cop }}",
+              "type": "number"
+            },
+            {
+              "id": "a02a2e64-b42b-4d04-a731-2db0c29b5b4a",
+              "name": "currency",
+              "value": "={{ $json.currency }}",
+              "type": "string"
+            },
+            {
+              "id": "c095c393-2db1-4ba3-b850-bb0727a65167",
+              "name": "tx_date",
+              "value": "={{ $json.tx_date }}",
+              "type": "string"
+            },
+            {
+              "id": "051fb141-957c-4cf0-b9ba-e092f7588f27",
+              "name": "tx_time",
+              "value": "={{ $json.tx_time }}",
+              "type": "string"
+            },
+            {
+              "id": "8096080d-eba9-4fd1-8443-bdda020dc124",
+              "name": "internalDate_readable",
+              "value": "={{ $json.internalDate_readable }}",
+              "type": "string"
+            },
+            {
+              "id": "81faa600-4fe0-4f21-8655-91a1e96d8de2",
+              "name": "type",
+              "value": "={{ $json.type }}",
+              "type": "string"
+            },
+            {
+              "id": "c8e9d86c-fba1-491c-b9d9-037b80ae1b8c",
+              "name": "internalDate",
+              "value": "={{ $json.internalDate }}",
+              "type": "string"
+            },
+            {
+              "id": "0045d994-ef32-4479-b60a-7c761e3af103",
+              "name": "mimeType",
+              "value": "={{ $json.mimeType }}",
+              "type": "string"
+            },
+            {
+              "id": "c6b0f105-4b93-4468-9d77-b6ee8bbff2e4",
+              "name": "sizeEstimate",
+              "value": "={{ $json.sizeEstimate }}",
+              "type": "number"
+            },
+            {
+              "id": "b9b37d7b-0c76-49c9-919e-f940b44bc3d8",
+              "name": "historyId",
+              "value": "={{ $json.historyId }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -992,
+        96
+      ],
+      "id": "12ef538b-b9c1-421d-8c54-c7ab9125f657",
+      "name": "Edit Fields to bills"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c27f5ad1-4db4-4c32-b76c-ca819bd37951",
+              "name": "id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "b52dad13-2d4e-4103-befb-8016049387d0",
+              "name": "threadId",
+              "value": "={{ $json.threadId }}",
+              "type": "string"
+            },
+            {
+              "id": "37c586ba-499e-4eb9-86af-a0b7625d591d",
+              "name": "bank",
+              "value": "={{ $json.bank }}",
+              "type": "string"
+            },
+            {
+              "id": "add888ae-685f-45e4-b7ea-7c56cf352b28",
+              "name": "subject",
+              "value": "={{ $json.subject }}",
+              "type": "string"
+            },
+            {
+              "id": "a15b9e9d-63fb-492f-a5be-1168c63b27f3",
+              "name": "from",
+              "value": "={{ $json.from }}",
+              "type": "string"
+            },
+            {
+              "id": "316792b7-b9ad-449f-9a1f-432f7f508642",
+              "name": "to",
+              "value": "={{ $json.to }}",
+              "type": "string"
+            },
+            {
+              "id": "ad7fddab-dea0-420f-ba59-59897c7a816a",
+              "name": "snippet",
+              "value": "={{ $json.snippet }}",
+              "type": "string"
+            },
+            {
+              "id": "5f82d987-9d69-4b03-960e-3da1049ff6f6",
+              "name": "merchant",
+              "value": "={{ $json.merchant }}",
+              "type": "string"
+            },
+            {
+              "id": "1ea479c4-6098-492f-a0fc-7574af229870",
+              "name": "amount_cop",
+              "value": "={{ $json.amount_cop }}",
+              "type": "number"
+            },
+            {
+              "id": "4468fdf6-d7b8-48f8-8643-d6fe5acba6c0",
+              "name": "currency",
+              "value": "={{ $json.currency }}",
+              "type": "string"
+            },
+            {
+              "id": "bdf03ef9-90dc-42a7-885c-f1a52d156d3b",
+              "name": "tx_date",
+              "value": "={{ $json.tx_date }}",
+              "type": "string"
+            },
+            {
+              "id": "760c28f3-d4bc-49fe-b822-d2a4487e84e6",
+              "name": "tx_time",
+              "value": "={{ $json.tx_time }}",
+              "type": "string"
+            },
+            {
+              "id": "b674089a-ebbd-4cef-a754-3b7d221942d6",
+              "name": "internalDate_readable",
+              "value": "={{ $json.internalDate_readable }}",
+              "type": "string"
+            },
+            {
+              "id": "13a34566-9105-4daa-a156-901a6a27b1cd",
+              "name": "type",
+              "value": "={{ $json.type }}",
+              "type": "string"
+            },
+            {
+              "id": "499ec0dc-b1ab-41c5-aa79-7a891b1a0049",
+              "name": "internalDate",
+              "value": "={{ $json.internalDate }}",
+              "type": "string"
+            },
+            {
+              "id": "5168fc02-ae6b-40eb-9728-427977293ea9",
+              "name": "mimeType",
+              "value": "={{ $json.mimeType }}",
+              "type": "string"
+            },
+            {
+              "id": "99de7ef3-a0fa-48ca-ace3-93222106f746",
+              "name": "sizeEstimate",
+              "value": "={{ $json.sizeEstimate }}",
+              "type": "number"
+            },
+            {
+              "id": "a3d47d2a-fbaa-47de-9c04-57f9015f2978",
+              "name": "historyId",
+              "value": "={{ $json.historyId }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -944,
+        272
+      ],
+      "id": "af97d044-a701-4f16-8830-0b6dc2614ecf",
+      "name": "Edit Fields to notifications"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -656,
+        384
+      ],
+      "id": "6e449474-072e-4115-8828-87960482d7b9",
+      "name": "Loop Over Items 2",
+      "alwaysOutputData": true,
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1soidCn_3VqT6weeMDzrIFs9cG7pbfic2MmVVfftBUIA/edit?usp=sharing",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "transactions",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1soidCn_3VqT6weeMDzrIFs9cG7pbfic2MmVVfftBUIA/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}",
+            "threadId": "={{ $json.threadId }}",
+            "bank": "={{ $json.bank }}",
+            "subject": "={{ $json.subject }}",
+            "from": "={{ $json.from }}",
+            "to": "={{ $json.to }}",
+            "snippet": "={{ $json.snippet }}",
+            "merchant": "={{ $json.merchant }}",
+            "amount_cop": "={{ $json.amount_cop }}",
+            "currency": "={{ $json.currency }}",
+            "tx_date": "={{ $json.tx_date }}",
+            "tx_time": "={{ $json.tx_time }}",
+            "internalDate_readable": "={{ $json.internalDate_readable }}",
+            "mimeType": "={{ $json.mimeType }}",
+            "sizeEstimate": "={{ $json.sizeEstimate }}",
+            "historyId": "={{ $json.historyId }}",
+            "type": "={{ $json.type }}",
+            "internalDate": "={{ $json.internalDate }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "threadId",
+              "displayName": "threadId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "bank",
+              "displayName": "bank",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "from",
+              "displayName": "from",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "to",
+              "displayName": "to",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "snippet",
+              "displayName": "snippet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "merchant",
+              "displayName": "merchant",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "amount_cop",
+              "displayName": "amount_cop",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currency",
+              "displayName": "currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tx_date",
+              "displayName": "tx_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tx_time",
+              "displayName": "tx_time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "internalDate_readable",
+              "displayName": "internalDate_readable",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "labels",
+              "displayName": "labels",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "mimeType",
+              "displayName": "mimeType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sizeEstimate",
+              "displayName": "sizeEstimate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "historyId",
+              "displayName": "historyId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "type",
+              "displayName": "type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "internalDate",
+              "displayName": "internalDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -288,
+        16
+      ],
+      "id": "efd8d5a3-b542-43ff-85bd-50b950985f06",
+      "name": "Append or update row in transaction sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Wyyv1TQp3EqZ59nr",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1soidCn_3VqT6weeMDzrIFs9cG7pbfic2MmVVfftBUIA/edit?usp=sharing",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1962418933,
+          "mode": "list",
+          "cachedResultName": "notifications",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1soidCn_3VqT6weeMDzrIFs9cG7pbfic2MmVVfftBUIA/edit#gid=1962418933"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}",
+            "threadId": "={{ $json.threadId }}",
+            "bank": "={{ $json.bank }}",
+            "subject": "={{ $json.subject }}",
+            "from": "={{ $json.from }}",
+            "to": "={{ $json.to }}",
+            "snippet": "={{ $json.snippet }}",
+            "merchant": "={{ $json.merchant }}",
+            "amount_cop": "={{ $json.amount_cop }}",
+            "tx_date": "={{ $json.tx_date }}",
+            "tx_time": "={{ $json.tx_time }}",
+            "internalDate_readable": "={{ $json.internalDate_readable }}",
+            "type": "={{ $json.type }}",
+            "internalDate": "={{ $json.internalDate }}",
+            "mimeType": "={{ $json.mimeType }}",
+            "sizeEstimate": "={{ $json.sizeEstimate }}",
+            "historyId": "={{ $json.historyId }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "threadId",
+              "displayName": "threadId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "bank",
+              "displayName": "bank",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "from",
+              "displayName": "from",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "to",
+              "displayName": "to",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "snippet",
+              "displayName": "snippet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "merchant",
+              "displayName": "merchant",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "amount_cop",
+              "displayName": "amount_cop",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tx_date",
+              "displayName": "tx_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tx_time",
+              "displayName": "tx_time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "internalDate_readable",
+              "displayName": "internalDate_readable",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "labels",
+              "displayName": "labels",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "mimeType",
+              "displayName": "mimeType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sizeEstimate",
+              "displayName": "sizeEstimate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "historyId",
+              "displayName": "historyId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "type",
+              "displayName": "type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "internalDate",
+              "displayName": "internalDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -240,
+        416
+      ],
+      "id": "de5d7ac0-493c-4961-806d-19aae29b647a",
+      "name": "Append or update row in notification sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Wyyv1TQp3EqZ59nr",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Este mensaje aparecerá en los logs de ejecución de n8n\nconsole.log(\"==========================================\");\nconsole.log(\"✅ PROCESAMIENTO COMPLETADO EXITOSAMENTE\");\nconsole.log(\"Todos los lotes de correos han sido registrados.\");\nconsole.log(\"==========================================\");\n\nreturn [{\n  json: {\n    status: \"success\",\n    message: \"El flujo ha terminado de procesar todos los ítems.\",\n    timestamp: new Date().toLocaleString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        -160
+      ],
+      "id": "0fc9b60b-ab75-4e16-8866-108c788d15dd",
+      "name": "Confirmation output"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Este mensaje aparecerá en los logs de ejecución de n8n\nconsole.log(\"==========================================\");\nconsole.log(\"✅ PROCESAMIENTO COMPLETADO EXITOSAMENTE\");\nconsole.log(\"Todos los lotes de correos han sido registrados.\");\nconsole.log(\"==========================================\");\n\nreturn [{\n  json: {\n    status: \"success\",\n    message: \"El flujo ha terminado de procesar todos los ítems.\",\n    timestamp: new Date().toLocaleString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        272
+      ],
+      "id": "2fcd0e56-e7fa-4e24-b9cd-775b2267c8a5",
+      "name": "Confirmation output 1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get many messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields to bills",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit Fields to notifications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many messages": {
+      "main": [
+        [
+          {
+            "node": "Data filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Confirmation output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in notification sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data filter": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait1": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in transaction sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields to bills": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields to notifications": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items 2": {
+      "main": [
+        [
+          {
+            "node": "Confirmation output 1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append or update row in transaction sheet": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append or update row in notification sheet": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "dadb00b2-7d17-4a02-af58-88ea325a6223",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9815884bcdf03e3cebc08366985c36f9571b1853e91f3f517b94b8fe0229d30b"
+  },
+  "id": "pUIBgl6KLwPQ1HVQ",
+  "tags": []
+}
