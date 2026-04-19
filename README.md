@@ -92,6 +92,18 @@ As a **Public Accounting student** and **Full-Stack Developer**, I designed this
 3.  **Efficiency:** Reduces manual bookkeeping time by an estimated **98%**, allowing for real-time cash flow monitoring.
 
 ---
+## ⚠️ Credential Configuration Note
+
+For security and privacy reasons, the provided `.json` file does not contain active API credentials. To test this workflow in your own environment:
+
+1. You must create a project in the **Google Cloud Console**.
+
+2. Enable the **Gmail API** and **Google Sheets API**.
+
+3. Create your own **OAuth2 Credentials** and link them to your n8n instance.
+
+4. Update the **Spreadsheet ID** and **Range** in the Google Sheets nodes to point to your target document.
+---
 
 ## 👤 Author
 
